@@ -5,3 +5,4 @@ numpy
 transformers
 sentencepiece
 faiss-cpu==1.15.1
+torchvision
