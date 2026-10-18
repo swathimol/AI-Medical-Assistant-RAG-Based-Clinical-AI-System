@@ -10,8 +10,20 @@ import streamlit as st
 import anthropic
 from sentence_transformers import SentenceTransformer
 
-DATA_DIR = "data"
+DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 MODEL = "claude-sonnet-5-5"
+# Set ENABLE_LOCAL_LLM=0 (env var or Streamlit secret) to skip the local model
+ENABLE_LOCAL = os.getenv("ENABLE_LOCAL_LLM", "1") == "1"
+
+
+def get_api_key():
+    """Read the key from Streamlit secrets (cloud) or environment (local)."""
+    try:
+        if "ANTHROPIC_API_KEY" in st.secrets:
+            return st.secrets["ANTHROPIC_API_KEY"]
+    except Exception:
+        pass
+    return os.getenv("ANTHROPIC_API_KEY")
 TOP_K = 4
 MIN_SCORE = 0.30  # below this similarity -> "insufficient evidence"
 
@@ -69,7 +81,7 @@ def retrieve(query, embedder, chunks, sources, vecs):
 def answer(query, hits):
     context = "\n\n".join(f"[{i+1}] (source: {s})\n{c}"
                           for i, (c, s, _) in enumerate(hits))
-    client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY
+    client = anthropic.Anthropic(api_key=get_api_key())
     resp = client.messages.create(
         model=MODEL,
         max_tokens=700,
@@ -92,7 +104,7 @@ def answer_local(query, hits):
     context = " ".join(c for c, _, _ in hits[:2])
     prompt = (
         "Answer the question in a few clear sentences using only the context.\n\n"
-        f"Context: {context}\n\nQuestion: {query}\nAnswer:"
+        f"Question: {query}\n\nContext: {context}\n\nAnswer:"
     )
     out = gen(prompt, max_new_tokens=150, num_beams=4, truncation=True)
     return out[0]["generated_text"].strip()
@@ -118,16 +130,20 @@ if query:
     if hits[0][2] < MIN_SCORE:
         st.info("I don't have enough evidence in my knowledge base to answer this.")
     else:
-        if os.getenv("ANTHROPIC_API_KEY"):
-            with st.spinner("Thinking..."):
-                st.markdown(answer(query, hits))
+        if get_api_key():
+            try:
+                with st.spinner("Thinking..."):
+                    st.markdown(answer(query, hits))
+            except Exception as e:
+                st.error(f"LLM error: {e}")
         else:
             local = None
-            try:
-                with st.spinner("Generating answer with local model (first run downloads it, please wait)..."):
-                    local = answer_local(query, hits)
-            except Exception as e:
-                st.caption(f"Local model unavailable, showing extracted answer instead. ({e})")
+            if ENABLE_LOCAL:
+                try:
+                    with st.spinner("Generating answer with local model (first run downloads it, please wait)..."):
+                        local = answer_local(query, hits)
+                except Exception as e:
+                    st.caption(f"Local model unavailable, showing extracted answer instead. ({e})")
             if local:
                 st.success("Answer (generated locally from retrieved documents):")
                 st.markdown(f"{local}\n\n*Sources: {', '.join(sorted(set(h[1] for h in hits[:2])))}*")
