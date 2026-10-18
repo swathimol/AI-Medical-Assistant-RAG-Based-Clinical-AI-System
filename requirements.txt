@@ -2,6 +2,6 @@ streamlit
 anthropic
 sentence-transformers
 numpy
-faiss-cpu
 transformers
 sentencepiece
+faiss-cpu==1.15.1
