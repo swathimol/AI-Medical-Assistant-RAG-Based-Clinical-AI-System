@@ -1,0 +1,6 @@
+streamlit
+anthropic
+sentence-transformers
+numpy
+transformers
+sentencepiece
